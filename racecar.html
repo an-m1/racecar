@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>3D Oval Race Track with Grass</title>
+  <style>
+    body { margin: 0; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+  let scene, camera, renderer;
+  let car1, car2;
+  let car1Angle = 0, car2Angle = 0;
+  const trackWidth = 3; // Width of the track
+  const innerRadiusX = 30; // X-radius of the oval
+  const innerRadiusZ = 20; // Z-radius of the oval
+  const laneOffset = 2; // Offset for side-by-side lanes
+  let cameraMode = 0;
+  let frameCount = 0;
+  let transitionProgress = 0;
+  const switchInterval = 600;
+  const transitionDuration = 150;
+  let startPosition = new THREE.Vector3();
+  let targetPosition = new THREE.Vector3();
+  let targetLookAt = new THREE.Vector3();
+
+  function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x202020);
+
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 50, 100);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    createGrassAndTrack();
+    car1 = createCar(0xff0000); // Red car
+    car2 = createCar(0x0000ff); // Blue car
+    scene.add(car1);
+    scene.add(car2);
+
+    animate();
+  }
+
+  function createGrassAndTrack() {
+    // Outer square grass area
+    const outerGrassGeometry = new THREE.PlaneGeometry(100, 100);
+    const outerGrassMaterial = new THREE.MeshBasicMaterial({ color: 0x228B22 });
+    const outerGrass = new THREE.Mesh(outerGrassGeometry, outerGrassMaterial);
+    outerGrass.rotation.x = -Math.PI / 2;
+    outerGrass.position.y = -0.01; // Slightly below the track to avoid z-fighting
+    scene.add(outerGrass);
+
+    // Inner circle grass area
+    const innerGrassGeometry = new THREE.CircleGeometry(innerRadiusZ - 1, 64);
+    const innerGrassMaterial = new THREE.MeshBasicMaterial({ color: 0x228B22 });
+    const innerGrass = new THREE.Mesh(innerGrassGeometry, innerGrassMaterial);
+    innerGrass.rotation.x = -Math.PI / 2;
+    scene.add(innerGrass);
+
+    // Oval track using RingGeometry
+    const trackGeometry = new THREE.RingGeometry(innerRadiusZ, innerRadiusX + trackWidth, 64);
+    const trackMaterial = new THREE.MeshBasicMaterial({ color: 0x808080, side: THREE.DoubleSide });
+    const track = new THREE.Mesh(trackGeometry, trackMaterial);
+    track.rotation.x = -Math.PI / 2;
+    scene.add(track);
+  }
+
+  function createCar(color) {
+    const car = new THREE.Group();
+    const bodyGeometry = new THREE.BoxGeometry(4, 1, 2);
+    const bodyMaterial = new THREE.MeshBasicMaterial({ color });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    car.add(body);
+
+    const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 1, 12);
+    const wheelMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
+    for (let i = -1; i <= 1; i += 2) {
+      for (let j = -1; j <= 1; j += 2) {
+        const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(i * 1.5, -0.5, j);
+        car.add(wheel);
+      }
+    }
+    car.position.y = 0.6; // Position slightly above the road to avoid clipping
+    return car;
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    frameCount++;
+
+    let car1Speed, car2Speed;
+
+    if (cameraMode === 0 || cameraMode === 1) {
+      car1Speed = 0.015 + 0.0025 * Math.sin(frameCount / 50);
+      car2Speed = 0.015 + 0.002 * Math.cos(frameCount / 40);
+    } else {
+      car1Speed = 0.03 + 0.005 * Math.sin(frameCount / 50);
+      car2Speed = 0.03 + 0.004 * Math.cos(frameCount / 40);
+    }
+
+    car1Angle += car1Speed;
+    car2Angle += car2Speed;
+
+    // Position car1 on the outer lane of the oval track
+    car1.position.set(
+      (innerRadiusX + laneOffset) * Math.cos(car1Angle),
+      0.6,
+      (innerRadiusZ + laneOffset) * Math.sin(car1Angle)
+    );
+    car1.rotation.y = -car1Angle + Math.PI / 2;
+
+    // Position car2 on the inner lane of the oval track
+    car2.position.set(
+      (innerRadiusX - laneOffset) * Math.cos(car2Angle),
+      0.6,
+      (innerRadiusZ - laneOffset) * Math.sin(car2Angle)
+    );
+    car2.rotation.y = -car2Angle + Math.PI / 2;
+
+    if (frameCount % switchInterval === 0) {
+      setCameraTransition();
+    }
+
+    const midpoint = new THREE.Vector3(
+      (car1.position.x + car2.position.x) / 2,
+      0.6,
+      (car1.position.z + car2.position.z) / 2
+    );
+
+    if (transitionProgress < 1) {
+      transitionProgress += 1 / transitionDuration;
+      camera.position.lerpVectors(startPosition, targetPosition, easeInOutQuad(transitionProgress));
+      camera.lookAt(midpoint);
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  function setCameraTransition() {
+    transitionProgress = 0;
+    startPosition.copy(camera.position);
+
+    cameraMode = (cameraMode + 1) % 4;
+    const midpoint = new THREE.Vector3(
+      (car1.position.x + car2.position.x) / 2,
+      0.6,
+      (car1.position.z + car2.position.z) / 2
+    );
+
+    switch (cameraMode) {
+      case 0:
+        targetPosition.set(midpoint.x - 15, 10, midpoint.z - 20);
+        break;
+      case 1:
+        targetPosition.set(0, 80, 0);
+        break;
+      case 2:
+        targetPosition.set(midpoint.x + 15, 10, midpoint.z + 20);
+        break;
+      case 3:
+        targetPosition.set(midpoint.x - 15, 15, midpoint.z - 20);
+        break;
+    }
+  }
+
+  function easeInOutQuad(t) {
+    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  }
+
+  window.addEventListener('resize', () => {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+  });
+
+  init();
+</script>
+</body>
+</html>
